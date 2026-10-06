@@ -1,3 +1,4 @@
 *zig-*/
 .envrc
 .devenv
+*.old
