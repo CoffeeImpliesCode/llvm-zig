@@ -63,6 +63,10 @@ pub fn build(b: *std.Build) !void {
         clang_module.link_libcpp = true;
 
     const examples = b.option(bool, "examples", "Build all examples [default: false]") orelse false;
+
+    // zig-cov coverage (see zig-cov README): zig-gate --cov passes these
+    const coverage = b.option(bool, "coverage", "Enable zig-cov") orelse false;
+    const cov_rt = b.option([]const u8, "coverage-rt", "zig-cov-rt path") orelse null;
     if (examples) {
         buildExample(b, .{
             .filepath = "examples/sum_module.zig",
@@ -81,7 +85,7 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
-    buildTests(b, target);
+    buildTests(b, target, coverage, cov_rt);
 }
 
 fn buildExample(b: *std.Build, i: BuildInfo) void {
@@ -120,7 +124,7 @@ const BuildInfo = struct {
     }
 };
 
-fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget) void {
+fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, coverage: bool, cov_rt: ?[]const u8) void {
     const custom_test_runner: std.Build.Step.Compile.TestRunner = .{
         .path = b.dependency("test_runner", .{}).path("test_runner.zig"),
         .mode = .simple,
@@ -145,6 +149,18 @@ fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget) void {
     });
     llvm_tests.root_module.addImport("llvm", b.modules.get("llvm").?);
     clang_tests.root_module.addImport("clang", b.modules.get("clang").?);
+
+    if (coverage) {
+        llvm_tests.use_llvm = true; // required: only the LLVM backend emits sancov counters
+        llvm_tests.root_module.fuzz = true; // emits __sancov_cntrs + __sancov_pcs1
+        llvm_tests.root_module.link_libc = true; // atexit handler writes the .zcov
+        if (cov_rt) |p| llvm_tests.root_module.addObjectFile(.{ .cwd_relative = p });
+
+        clang_tests.use_llvm = true; // required: only the LLVM backend emits sancov counters
+        clang_tests.root_module.fuzz = true; // emits __sancov_cntrs + __sancov_pcs1
+        clang_tests.root_module.link_libc = true; // atexit handler writes the .zcov
+        if (cov_rt) |p| clang_tests.root_module.addObjectFile(.{ .cwd_relative = p });
+    }
 
     llvm_tests.step.dependOn(&b.addRunArtifact(clang_tests).step);
     const run_llvm_tests = b.addRunArtifact(llvm_tests);

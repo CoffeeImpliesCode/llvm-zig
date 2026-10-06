@@ -18,4 +18,6 @@ in rec {
 
   enterShell = ''
   '';
+
+  scripts.gate.exec = "zig-gate";
 }
